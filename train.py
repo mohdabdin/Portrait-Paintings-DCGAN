@@ -8,7 +8,7 @@ import torchvision.transforms as transforms
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from model import Discriminator, Generator, initialize_weights
+from networks.DCGAN_model_64 import Discriminator, Generator, initialize_weights
 import random
 import os
 import natsort
@@ -26,6 +26,27 @@ NUM_EPOCHS = 100
 FEATURES_DISC = 64
 FEATURES_GEN = 64
 
+def random_augmentation(img):
+    #random mirroring/flipping image
+    rand_mirror = random.randint(0,1)
+    
+    #random saturation adjustment
+    rand_sat = random.uniform(0.5,1.5)
+    
+    #random sharpness adjustment
+    rand_sharp = random.uniform(0.5,1.5)
+    
+    converter = ImageEnhance.Color(img)
+    img = converter.enhance(rand_sat)
+    
+    converter = ImageEnhance.Sharpness(img)
+    img = converter.enhance(rand_sharp)
+
+    if rand_mirror==0:
+        img = ImageOps.mirror(img)
+    
+    return img
+
 class CustomDataSet(Dataset):
     def __init__(self, main_dir, transform):
         self.main_dir = main_dir
@@ -38,7 +59,9 @@ class CustomDataSet(Dataset):
 
     def __getitem__(self, idx):
         img_loc = os.path.join(self.main_dir, self.total_imgs[idx])
-        image = Image.open(img_loc).convert('RGB')        
+        image = Image.open(img_loc).convert('RGB') 
+        image = random_augmentation(image)
+        
         tensor_image = self.transform(image)
         
         return tensor_image
@@ -108,7 +131,7 @@ for epoch in range(NUM_EPOCHS):
         opt_gen.step()
         
 
-        #checkpoint to save models, print losses, and write to tensorboard 
+        # Print losses occasionally and print to tensorboard
         if batch_idx % 10 == 0:                
             torch.save(gen.state_dict(), 'generator_model.pt')
             torch.save(disc.state_dict(), 'discriminator_model.pt')
@@ -130,3 +153,12 @@ for epoch in range(NUM_EPOCHS):
                 writer_fake.add_image("Fake", img_grid_fake, global_step=step)
 
             step += 1
+        
+            
+            
+            
+            
+            
+            
+            
+            
