@@ -1,7 +1,3 @@
-"""
-Training of DCGAN network on MNIST dataset with Discriminator
-and Generator imported from models.py
-"""
 import numpy as np
 import torch
 import torch.nn as nn
@@ -12,24 +8,23 @@ import torchvision.transforms as transforms
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from DCGAN_model import Discriminator, Generator, initialize_weights
-import dataloader
+from networks.DCGAN_model_64 import Discriminator, Generator, initialize_weights
+import random
 import os
 import natsort
-from PIL import Image
-import data_augmentation as DA
+from PIL import Image, ImageOps, ImageEnhance
 
-# Hyperparameters etc.
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-LEARNING_RATE = 1e-4  # could also use two lrs, one for gen and one for disc
-BATCH_SIZE = 16
-IMAGE_SIZE = 128
+D_LEARNING_RATE = 2e-4
+G_LEARNING_RATE = 1e-4
+BATCH_SIZE = 64
+IMAGE_SIZE = 64
 CHANNELS_IMG = 3
-NOISE_DIM = 100
-NUM_EPOCHS = 300
-FEATURES_DISC = 128
-FEATURES_GEN = 128
+NOISE_DIM = 128
+NUM_EPOCHS = 100
+FEATURES_DISC = 64
+FEATURES_GEN = 64
 
 class CustomDataSet(Dataset):
     def __init__(self, main_dir, transform):
@@ -43,16 +38,14 @@ class CustomDataSet(Dataset):
 
     def __getitem__(self, idx):
         img_loc = os.path.join(self.main_dir, self.total_imgs[idx])
-        image = Image.open(img_loc).convert('RGB')
-        augmented_img = DA.augment(image)
-        
+        image = Image.open(img_loc).convert('RGB')        
         tensor_image = self.transform(image)
+        
         return tensor_image
 
 transforms = transforms.Compose(
     [
-        #transforms.ToPILImage(),
-        transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
+        transforms.Resize((IMAGE_SIZE,IMAGE_SIZE)), 
         transforms.ToTensor(),
         transforms.Normalize(
             [0.5 for _ in range(CHANNELS_IMG)], [0.5 for _ in range(CHANNELS_IMG)]
@@ -62,26 +55,26 @@ transforms = transforms.Compose(
 
 
 
-# If you train on MNIST, remember to set channels_img to 1
-
-# comment mnist above and uncomment below if train on CelebA
-dataset = CustomDataSet("./data/128_imgs/", transform=transforms)
-#dataset = CustomDataSet("./data/64/dump/", transform=transforms)
-
+dataset = CustomDataSet("./data/128_portraits/", transform=transforms)
 
 dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
 
 gen = Generator(NOISE_DIM, CHANNELS_IMG, FEATURES_GEN).to(device)
 disc = Discriminator(CHANNELS_IMG, FEATURES_DISC).to(device)
+
 initialize_weights(gen)
 initialize_weights(disc)
 
+### uncomment to work from saved models ###
 
-opt_gen = optim.Adam(gen.parameters(), lr=LEARNING_RATE, betas=(0.5, 0.999))
-opt_disc = optim.Adam(disc.parameters(), lr=LEARNING_RATE, betas=(0.5, 0.999))
-criterion = nn.BCELoss()
+#gen.load_state_dict(torch.load('saved_models/generator_model.pt'))
+#disc.load_state_dict(torch.load('saved_models/discriminator_model.pt')) 
 
-#fixed_noise = torch.randn(32, NOISE_DIM, 1, 1).to(device)
+opt_gen = optim.Adam(gen.parameters(), lr=G_LEARNING_RATE, betas=(0.5, 0.99))
+opt_disc = optim.Adam(disc.parameters(), lr=D_LEARNING_RATE, betas=(0.5, 0.99))
+criterion = nn.MSELoss()
+
+fixed_noise = torch.randn(16, NOISE_DIM, 1, 1).to(device)
 writer_real = SummaryWriter(f"logs/real")
 writer_fake = SummaryWriter(f"logs/fake")
 step = 0
@@ -90,42 +83,42 @@ gen.train()
 disc.train()
 
 for epoch in range(NUM_EPOCHS):
-    # Target labels not needed! <3 unsupervised
     for batch_idx, real in enumerate(dataloader):
         real = real.to(device)
         noise = torch.randn(BATCH_SIZE, NOISE_DIM, 1, 1).to(device)
         fake = gen(noise)
 
-        ### Train Discriminator: max log(D(x)) + log(1 - D(G(z)))
+        ### Train Discriminator
         disc_real = disc(real).reshape(-1)
+
         loss_disc_real = criterion(disc_real, torch.ones_like(disc_real))
         disc_fake = disc(fake.detach()).reshape(-1)
         loss_disc_fake = criterion(disc_fake, torch.zeros_like(disc_fake))
         loss_disc = (loss_disc_real + loss_disc_fake) / 2
-        #if batch_idx%3==0:
+
         disc.zero_grad()
         loss_disc.backward()
         opt_disc.step()
 
-        ### Train Generator: min log(1 - D(G(z))) <-> max log(D(G(z))
+        ### Train Generator using feature matching
         output = disc(fake).reshape(-1)
         loss_gen = criterion(output, torch.ones_like(output))
         gen.zero_grad()
         loss_gen.backward()
         opt_gen.step()
+        
 
-        # Print losses occasionally and print to tensorboard
-        if batch_idx % 5 == 0:
+        #checkpoint to save models, print losses, and write to tensorboard 
+        if batch_idx % 10 == 0:                
             torch.save(gen.state_dict(), 'generator_model.pt')
+            torch.save(disc.state_dict(), 'discriminator_model.pt')
             print(
                 f"Epoch [{epoch}/{NUM_EPOCHS}] Batch {batch_idx}/{len(dataloader)} \
                   Loss D: {loss_disc:.4f}, loss G: {loss_gen:.4f}"
             )
 
             with torch.no_grad():
-                ran_noise = torch.randn(16, NOISE_DIM, 1, 1).to(device)
-                fake = gen(ran_noise)
-                # take out (up to) 32 examples
+                fake = gen(fixed_noise)
                 img_grid_real = torchvision.utils.make_grid(
                     real[:16], normalize=True
                 )
@@ -137,12 +130,3 @@ for epoch in range(NUM_EPOCHS):
                 writer_fake.add_image("Fake", img_grid_fake, global_step=step)
 
             step += 1
-            
-            
-            
-            
-            
-            
-            
-            
-            
