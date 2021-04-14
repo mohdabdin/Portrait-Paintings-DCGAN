@@ -8,7 +8,7 @@ import torchvision.transforms as transforms
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from networks.DCGAN_model_64 import Discriminator, Generator, initialize_weights
+from model import Discriminator, Generator, initialize_weights
 import random
 import os
 import natsort
